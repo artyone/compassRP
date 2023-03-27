@@ -22,55 +22,55 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.reciever: Reciever = Reciever()
-        self.data_x: list[float] = list(range(10))
-        self.data_y: list[float] = [0] * 10
-        self.data_for_x = count(10)
-        self.max_data_size = 50
-        self.data_for_file = []
-        self.port_list = self.reciever.get_ports()
+        self.dataX: list[float] = list(range(10))
+        self.dataY: list[float] = [0] * 10
+        self.dataForX = count(10)
+        self.maxDataSize = 50
+        self.dataForFile = []
+        self.portList = self.reciever.get_ports()
         self.setWindowTitle('КомпасРП вер. 1.0')
         self.initInterface()
 
     def initInterface(self):
-        self.port_menu = QComboBox()
-        self.port_menu.addItems([i.description for i in self.port_list])
+        self.portMenu = QComboBox()
+        self.portMenu.addItems([i.description for i in self.portList])
 
         self.initGraph()
 
         splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(self.plot_widget)
+        splitter.addWidget(self.plotWidget)
         splitter.addWidget(self.logAndCurrentLabel())
 
         self.compass = Compass()
         self.compass.hide()
 
         # Создаем главный макет окна и добавляем в него виджеты
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(self.port_menu)
-        main_layout.addWidget(splitter)
-        main_layout.addWidget(self.buttonBlock())
-        main_layout.addWidget(self.settingsWidget())
+        mainLayout = QVBoxLayout()
+        mainLayout.addWidget(self.portMenu)
+        mainLayout.addWidget(splitter)
+        mainLayout.addWidget(self.buttonBlock())
+        mainLayout.addWidget(self.settingsWidget())
 
         # Создаем виджет, в который добавляем главный макет и устанавливаем его в качестве центрального виджета окна
-        main_widget = QWidget()
-        main_widget.setLayout(main_layout)
-        self.setCentralWidget(main_widget)
+        mainWidget = QWidget()
+        mainWidget.setLayout(mainLayout)
+        self.setCentralWidget(mainWidget)
         self.showMaximized()
 
     def initGraph(self):
         # Создаем виджет графика
-        self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground('black')
+        self.plotWidget = pg.PlotWidget()
+        self.plotWidget.setBackground('black')
         # Создаем кривую для виджета графика
-        self.curve = pg.PlotDataItem(self.data_x,
-                                     self.data_y,
+        self.curve = pg.PlotDataItem(self.dataX,
+                                     self.dataY,
                                      pen=pg.mkPen('red', width=2))
-        self.plot_widget.addItem(self.curve)
-        self.plot_widget.setRange(yRange=list(range(-180, 180, 10)))
+        self.plotWidget.addItem(self.curve)
+        self.plotWidget.setRange(yRange=list(range(-180, 180, 10)))
 
         # Создаем таймер для обновления графика и текущего времени
         self.timer = QTimer()
-        self.timer.timeout.connect(self.update_plot_and_logs)
+        self.timer.timeout.connect(self.updatePlotAndLogs)
 
     def buttonBlock(self):
         widget = QWidget()
@@ -120,42 +120,42 @@ class MainWindow(QMainWindow):
 
     def settingsWidget(self):
         '''Виджеты настроек'''
-        settings_widget = QWidget()
-        settings_layout = QHBoxLayout()
+        settingsWidget = QWidget()
+        settingsLayout = QHBoxLayout()
 
-        left_layout = QFormLayout()
-        self.frequency_receiver = QLineEdit('100')
-        self.frequency_save = QLineEdit('10')
-        left_layout.addRow(
-            'Частота опроса компаса(мс): ', self.frequency_receiver)
-        left_layout.addRow(
-            'Частота записи в файл: ', self.frequency_save)
+        leftLayout = QFormLayout()
+        self.frequencyReceiverLine = QLineEdit('100')
+        self.frequencySaveLine = QLineEdit('10')
+        leftLayout.addRow(
+            'Частота опроса компаса(мс): ', self.frequencyReceiverLine)
+        leftLayout.addRow(
+            'Частота записи в файл: ', self.frequencySaveLine)
 
-        right_layout = QFormLayout()
-        self.length_window_filter = QLineEdit('50')
-        self.alpha_window_filter = QLineEdit('0.1')
-        right_layout.addRow(
-            'Длина окна фильтра: ', self.length_window_filter)
-        right_layout.addRow(
-            'Множитель фильтра: ', self.alpha_window_filter)
+        rightLayout = QFormLayout()
+        self.lengthWindowFilterLine = QLineEdit('50')
+        self.alphaWindowFilterLine = QLineEdit('0.1')
+        rightLayout.addRow(
+            'Длина окна фильтра: ', self.lengthWindowFilterLine)
+        rightLayout.addRow(
+            'Множитель фильтра: ', self.alphaWindowFilterLine)
 
-        settings_layout.addLayout(left_layout)
-        settings_layout.addLayout(right_layout)
-        settings_widget.setLayout(settings_layout)
-        return settings_widget
+        settingsLayout.addLayout(leftLayout)
+        settingsLayout.addLayout(rightLayout)
+        settingsWidget.setLayout(settingsLayout)
+        return settingsWidget
 
     def startPlotting(self):
         '''Метод старта отслеживания результатов'''
         # Генерация имени файла, в который будет сохранены результаты
-        self.name_file = (
+        self.fileName = (
             'data-' + str(datetime.datetime.now().strftime("%H-%M-%S")))
         # Создание экземпляра класса фильтрации
         self.lowPassFilter = LowPassFilter(
-            int(self.length_window_filter.text()), float(self.alpha_window_filter.text()))
+            int(self.lengthWindowFilterLine.text()), float(self.alphaWindowFilterLine.text()))
         self.startButton.hide()
         self.stopButton.show()
         # Старт отслеживания
-        self.timer.start(int(self.frequency_receiver.text()))
+        self.timer.start(int(self.frequencyReceiverLine.text()))
 
 
     def stopPlotting(self):
@@ -163,24 +163,24 @@ class MainWindow(QMainWindow):
         self.timer.stop()  # Обновление каждую секунду
         self.startButton.show()
         self.stopButton.hide()
-        self.data_for_file = []
+        self.dataForFile = []
 
     def showCompass(self):
         self.compass.show()
 
-    def update_plot_and_logs(self):
+    def updatePlotAndLogs(self):
         # Если данных больше, чем отслеживаемый прериод, удаляем лишние данные
-        while len(self.data_x) > self.max_data_size:
-            self.data_x.pop(0)
-            self.data_y.pop(0)
+        while len(self.dataX) > self.maxDataSize:
+            self.dataX.pop(0)
+            self.dataY.pop(0)
         # Добавляем новые данные
-        self.data_x.append(next(self.data_for_x))
-        self.data_y.append(y)
-        y = self.reciever.get_ungle(self.port_menu.currentIndex())
+        self.dataX.append(next(self.dataForX))
+        self.dataY.append(y)
+        y = self.reciever.get_ungle(self.portMenu.currentIndex())
         # Считаем среднее
         filteredY = self.lowPassFilter.filter(y)
         # Обновляем график
-        self.curve.setData(self.data_x, self.data_y)
+        self.curve.setData(self.dataX, self.dataY)
         # Обновляем графический компас, текущие показания, логи
         self.compass.updateDirection(filteredY)
         self.currentLabel.setText(f'{filteredY:.3f}')
@@ -194,12 +194,12 @@ class MainWindow(QMainWindow):
     def updateTextLogs(self, y):
         self.timestamp = datetime.datetime.now().strftime("%H.%M.%S.%f")[:-3]
         # Строка лога
-        log_text = (
+        textLog = (
             f'<i>{self.timestamp}</i> : <font color="red"><b>{y:.4f}</b></font><br>')
         # Перемещаем курсор в конец текста
         self.logTextEdit.moveCursor(QTextCursor.End)
         # Добавляем строку лога в конец текста
-        self.logTextEdit.insertHtml(log_text)
+        self.logTextEdit.insertHtml(textLog)
         if self.logTextEdit.toPlainText().count('\n') > 1000:  # Если количество строк превышает 1000
             # Удаляем первую строку (самую старую)
             self.logTextEdit.moveCursor(QTextCursor.Start)
@@ -209,33 +209,33 @@ class MainWindow(QMainWindow):
         self.logTextEdit.moveCursor(QTextCursor.End)
 
     def updateFileLogs(self, y):
-        self.data_for_file.append(y)
-        if len(self.data_for_file) >= int(self.frequency_save.text()):
+        self.dataForFile.append(y)
+        if len(self.dataForFile) >= int(self.frequencySaveLine.text()):
             try:
                 if not os.path.exists('data'):
                     os.mkdir('data')
-                with open(f'data/{self.name_file}.csv', 'a') as file:
-                    if all(i > 0 for i in self.data_for_file) or all(i > 0 for i in self.data_for_file):
-                        mean = sum(self.data_for_file) / len(self.data_for_file)
-                    else: mean = self.data_for_file[-1]
+                with open(f'data/{self.fileName}.csv', 'a') as file:
+                    if all(i > 0 for i in self.dataForFile) or all(i > 0 for i in self.dataForFile):
+                        mean = sum(self.dataForFile) / len(self.dataForFile)
+                    else: mean = self.dataForFile[-1]
                     file.write(f'{self.timestamp},{mean}\n')
-                    self.data_for_file = []
+                    self.dataForFile = []
             except Exception as e:
                 self.stopPlotting()
                 self.alert(QMessageBox.Warning, str(e))
 
     @staticmethod
     def alert(type, message):
-        msg_box = QMessageBox()
-        msg_box.setIcon(type)
-        msg_box.setWindowTitle("Предупреждение")
-        msg_box.setText(message)
-        msg_box.addButton(QMessageBox.Ok)
-        msg_box.exec_()
+        msgBox = QMessageBox()
+        msgBox.setIcon(type)
+        msgBox.setWindowTitle("Предупреждение")
+        msgBox.setText(message)
+        msgBox.addButton(QMessageBox.Ok)
+        msgBox.exec_()
 
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    main_window = MainWindow()
-    main_window.show()
+    mainWindow = MainWindow()
+    mainWindow.show()
     sys.exit(app.exec_())
