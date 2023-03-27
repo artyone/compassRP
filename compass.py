@@ -1,9 +1,10 @@
 from PyQt5.QtCore import QPoint, Qt
-from PyQt5.QtGui import QPainter, QColor, QPolygon, QFont, QTransform, QLinearGradient, QPen
+from PyQt5.QtGui import QPainter, QColor, QPolygon, QFont, QPen
 from PyQt5.QtWidgets import QWidget
 
 
 class Compass(QWidget):
+    '''Класс графического компаса'''
     def __init__(self):
         super().__init__()
         self.current_direction = 0
@@ -45,16 +46,12 @@ class Compass(QWidget):
 
         qp.setRenderHint(QPainter.Antialiasing)
 
-        # Draw compass arrow
         qp.translate(175, 175)
         qp.rotate(-self.current_direction + 180)
 
         qp.setPen(QColor(255, 255, 255))
         arrow_polygon = QPolygon(
             [QPoint(-10, 0), QPoint(0, -20), QPoint(10, 0), QPoint(0, 70)])
-        # gradient = QLinearGradient(-10, 0, 10, 0)
-        # gradient.setColorAt(0, QColor(0, 153, 204))
-        # gradient.setColorAt(1, QColor(255,160,122))
         qp.setBrush(QColor(215, 0, 64))
         qp.drawPolygon(arrow_polygon)
 

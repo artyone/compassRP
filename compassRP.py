@@ -18,6 +18,7 @@ import os
 
 
 class MainWindow(QMainWindow):
+    '''Класс главного окна'''
     def __init__(self):
         super().__init__()
         self.reciever: Reciever = Reciever()
@@ -36,9 +37,6 @@ class MainWindow(QMainWindow):
 
         self.initGraph()
 
-        # self.logTextEdit = QTextEdit()
-        # self.logTextEdit.setReadOnly(True)
-
         splitter = QSplitter(Qt.Vertical)
         splitter.addWidget(self.plot_widget)
         splitter.addWidget(self.logAndCurrentLabel())
@@ -52,7 +50,6 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(splitter)
         main_layout.addWidget(self.buttonBlock())
         main_layout.addWidget(self.settingsWidget())
-        # main_layout.addWidget(self.compass)
 
         # Создаем виджет, в который добавляем главный макет и устанавливаем его в качестве центрального виджета окна
         main_widget = QWidget()
@@ -88,9 +85,11 @@ class MainWindow(QMainWindow):
         self.stopButton.clicked.connect(self.stopPlotting)
         self.stopButton.hide()
 
+        # Создаем кнопку показа графического компаса
         self.showCompassButton = QPushButton('Show compass')
         self.showCompassButton.clicked.connect(self.showCompass)
 
+        # Создаем кнопку для открытия папки с логами
         self.openFolderFilesButton = QPushButton('Open files folder')
         self.openFolderFilesButton.clicked.connect(self.openFolderFiles)
 
@@ -103,6 +102,7 @@ class MainWindow(QMainWindow):
         return widget
 
     def logAndCurrentLabel(self):
+        '''Виджет лога и текущих показаний'''
         widget = QWidget()
         layout = QHBoxLayout()
         # Создаем виджет лога
@@ -119,6 +119,7 @@ class MainWindow(QMainWindow):
         return widget
 
     def settingsWidget(self):
+        '''Виджеты настроек'''
         settings_widget = QWidget()
         settings_layout = QHBoxLayout()
 
@@ -144,16 +145,21 @@ class MainWindow(QMainWindow):
         return settings_widget
 
     def startPlotting(self):
+        '''Метод старта отслеживания результатов'''
+        # Генерация имени файла, в который будет сохранены результаты
         self.name_file = (
             'data-' + str(datetime.datetime.now().strftime("%H-%M-%S")))
+        # Создание экземпляра класса фильтрации
         self.lowPassFilter = LowPassFilter(
             int(self.length_window_filter.text()), float(self.alpha_window_filter.text()))
         self.startButton.hide()
         self.stopButton.show()
+        # Старт отслеживания
         self.timer.start(int(self.frequency_receiver.text()))
 
 
     def stopPlotting(self):
+        '''Остановка отслеживания'''
         self.timer.stop()  # Обновление каждую секунду
         self.startButton.show()
         self.stopButton.hide()
@@ -163,29 +169,33 @@ class MainWindow(QMainWindow):
         self.compass.show()
 
     def update_plot_and_logs(self):
-        # Добавляем данные для графика
+        # Если данных больше, чем отслеживаемый прериод, удаляем лишние данные
         while len(self.data_x) > self.max_data_size:
             self.data_x.pop(0)
             self.data_y.pop(0)
+        # Добавляем новые данные
         self.data_x.append(next(self.data_for_x))
-        y = self.reciever.get_ungle(self.port_menu.currentIndex())
-        filteredY = self.lowPassFilter.filter(y)
         self.data_y.append(y)
+        y = self.reciever.get_ungle(self.port_menu.currentIndex())
+        # Считаем среднее
+        filteredY = self.lowPassFilter.filter(y)
+        # Обновляем график
         self.curve.setData(self.data_x, self.data_y)
+        # Обновляем графический компас, текущие показания, логи
         self.compass.updateDirection(filteredY)
         self.currentLabel.setText(f'{filteredY:.3f}')
-        self.update_logs(y)
+        self.updateTextLogs(y)
 
     def openFolderFiles(self):
         if not os.path.exists('data'):
             os.mkdir('data')
         os.startfile('data')
 
-    def update_logs(self, y):
-        timestamp = datetime.datetime.now().strftime("%H.%M.%S.%f")[:-3]
+    def updateTextLogs(self, y):
+        self.timestamp = datetime.datetime.now().strftime("%H.%M.%S.%f")[:-3]
         # Строка лога
         log_text = (
-            f'<i>{timestamp}</i> : <font color="red"><b>{y:.4f}</b></font><br>')
+            f'<i>{self.timestamp}</i> : <font color="red"><b>{y:.4f}</b></font><br>')
         # Перемещаем курсор в конец текста
         self.logTextEdit.moveCursor(QTextCursor.End)
         # Добавляем строку лога в конец текста
@@ -197,6 +207,8 @@ class MainWindow(QMainWindow):
                 QTextCursor.Down, QTextCursor.KeepAnchor)
             self.logTextEdit.insertPlainText('')
         self.logTextEdit.moveCursor(QTextCursor.End)
+
+    def updateFileLogs(self, y):
         self.data_for_file.append(y)
         if len(self.data_for_file) >= int(self.frequency_save.text()):
             try:
@@ -206,7 +218,7 @@ class MainWindow(QMainWindow):
                     if all(i > 0 for i in self.data_for_file) or all(i > 0 for i in self.data_for_file):
                         mean = sum(self.data_for_file) / len(self.data_for_file)
                     else: mean = self.data_for_file[-1]
-                    file.write(f'{timestamp},{mean}\n')
+                    file.write(f'{self.timestamp},{mean}\n')
                     self.data_for_file = []
             except Exception as e:
                 self.stopPlotting()
