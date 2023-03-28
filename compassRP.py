@@ -28,7 +28,7 @@ class MainWindow(QMainWindow):
         self.dataY: list[float] = [0] * 10
         self.dataForX = count(10)
         self.maxDataSize = 50
-        self.dataForFile = []
+        self.dataForFile = {'angle': [], 'x': [], 'y': []}
         self.portList = self.reciever.get_ports()
         self.setWindowTitle('КомпасРП вер. 1.1')
         self.initInterface()
@@ -70,6 +70,7 @@ class MainWindow(QMainWindow):
         self.plotWidget.addItem(self.curve)
         self.plotWidget.setRange(yRange=list(range(-180, 180, 10)))
         self.plotWidget.setMouseEnabled(False)
+        self.plotWidget.showGrid(x=True, y=True)
 
         # Создаем таймер для обновления графика и текущего времени
         self.timer = QTimer()
@@ -116,19 +117,19 @@ class MainWindow(QMainWindow):
         self.currentFilteredAngleLabel = QLabel('0')
         self.currentFilteredAngleLabel.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
         self.currentFilteredAngleLabel.setStyleSheet("color: red;")
-        self.currentFilteredAngleLabel.setFont(QFont("Arial", 30))
+        self.currentFilteredAngleLabel.setFont(QFont("Arial", 45))
 
         self.currentRealAngleLabel = QLabel('0')
         self.currentRealAngleLabel.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         self.currentRealAngleLabel.setStyleSheet("color: black;")
         self.currentRealAngleLabel.setFont(QFont("Arial", 15))
 
-        self.currentMagneticDeviationLabel = QLabel('0')
-        self.currentMagneticDeviationLabel.setAlignment(Qt.AlignCenter)
-        self.currentMagneticDeviationLabel.setStyleSheet(
-            "color: blue;")
+        # self.currentMagneticDeviationLabel = QLabel('0')
+        # self.currentMagneticDeviationLabel.setAlignment(Qt.AlignCenter)
+        # self.currentMagneticDeviationLabel.setStyleSheet(
+        #     "color: blue;")
         self.currentMagneticDeviationLabel.setFont(
-            QFont("Arial", 30))
+            QFont("Arial", 45))
 
         layout.addWidget(self.logTextEdit, 5)
         layout.addWidget(self.currentFilteredAngleLabel, 3)
@@ -173,7 +174,7 @@ class MainWindow(QMainWindow):
         # Генерация имени файла, в который будет сохранены результаты
         self.fileName = (
             'data-' + str(datetime.datetime.now().strftime("%H-%M-%S")))
-        self.dataForFile = []
+        self.clearDataForFile()
         # Создание экземпляра класса фильтрации
         self.lowPassFilter = LowPassFilter(
             int(self.lengthFilterWindowLine.text()), float(self.filterAlphaLine.text()))
@@ -193,6 +194,8 @@ class MainWindow(QMainWindow):
         self.compass.show()
 
     def updatePlotAndLogs(self):
+        #TODO переделать метод, разделить создание на обновление данных, запись их в массивы и 
+        # и отдельное построение графика и логов
         # Если данных больше, чем отслеживаемый прериод, удаляем лишние данные
         while len(self.dataX) > self.maxDataSize:
             self.dataX.pop(0)
@@ -205,7 +208,7 @@ class MainWindow(QMainWindow):
             self.alert(QMessageBox.Warning, 'Ошибка получения данных от компаса')
             return
         y = data['angle']
-        horizontalComponent = sqrt(data["x"]**2 + data["y"])
+        #horizontalComponent = sqrt(data["x"]**2 + data["y"])
         self.dataX.append(next(self.dataForX))
         self.dataY.append(y)
         # Считаем среднее
@@ -216,8 +219,9 @@ class MainWindow(QMainWindow):
         self.compass.updateDirection(filteredY)
         self.currentFilteredAngleLabel.setText(f'{filteredY:.3f}')
         self.currentRealAngleLabel.setText(f'{y:.3f}')
-        self.currentMagneticDeviationLabel.setText(f'{horizontalComponent:.3f}')
+        #self.currentMagneticDeviationLabel.setText(f'{horizontalComponent:.3f}')
         self.updateTextLogs(y)
+        self.updateFileLogs(y, data['x'], data['y'])
 
     def openFolderFiles(self):
         if not os.path.exists('data'):
@@ -241,23 +245,30 @@ class MainWindow(QMainWindow):
             self.logTextEdit.insertPlainText('')
         self.logTextEdit.moveCursor(QTextCursor.End)
 
-    def updateFileLogs(self, y):
-        self.dataForFile.append(y)
-        if len(self.dataForFile) < int(self.frequencySaveFileLine.text()):
+    def updateFileLogs(self, agnle, sourceX, sourceY):
+        self.dataForFile['angle'].append(agnle)
+        self.dataForFile['x'].append(sourceX)
+        self.dataForFile['y'].append(sourceY)
+        if len(self.dataForFile['angle']) < int(self.frequencySaveFileLine.text()):
             return
         try:
             if not os.path.exists('data'):
                 os.mkdir('data')
             with open(f'data/{self.fileName}.csv', 'a') as file:
-                if all(i > 0 for i in self.dataForFile) or all(i > 0 for i in self.dataForFile):
-                    mean = sum(self.dataForFile) / len(self.dataForFile)
+                if all(i >= 0 for i in self.dataForFile['angle']) or all(i <= 0 for i in self.dataForFile['angle']):
+                    mean = sum(self.dataForFile['angle']) / len(self.dataForFile['angle'])
                 else:
-                    mean = self.dataForFile[-1]
-                file.write(f'{self.timestamp},{mean},{self.dataForFile[-1]}\n')
-                self.dataForFile = []
+                    mean = self.dataForFile['angle'][-1]
+                realAngle = self.dataForFile['angle'][-1]
+                x, y = self.dataForFile['x'][-1], self.dataForFile['y'][-1]
+                file.write(f'{self.timestamp},{mean},{realAngle},{x},{y}\n')
+                self.clearDataForFile()
         except Exception as e:
             self.stopPlotting()
             self.alert(QMessageBox.Warning, str(e))
+    
+    def clearDataForFile(self):
+        self.dataForFile = {'angle': [], 'x': [], 'y': []}
 
     @staticmethod
     def alert(type, message):
