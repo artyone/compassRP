@@ -5,12 +5,12 @@ from collections import deque
 
 class LowPassFilter:
     '''Класс фильтрации данных'''
-    def __init__(self, window_size, alpha):
+    def __init__(self, window_size: int, alpha: float) -> None:
         self.alpha = alpha
         self.window = deque(maxlen=window_size)
         self.prev_avg = None
 
-    def filter(self, x):
+    def filter(self, x: float) -> float:
         self.window.append(x)
         if all(i > 0 for i in self.window) or all(i > 0 for i in self.window):
             if len(self.window) == self.window.maxlen:
@@ -42,7 +42,7 @@ class Reciever():
         return numbers
 
     @classmethod
-    def get_hex_data(cls, port_index):
+    def get_hex_data(cls, port_index: int) -> list:
         '''Получение байт-данных с ком-порта'''
         with Serial(bytesize=EIGHTBITS, timeout=0.1, baudrate=115200) as ser:
             ser.port = list(map(lambda x: x.device, cls.get_ports()))[port_index]
@@ -58,7 +58,7 @@ class Reciever():
                 return hex_data
 
     @classmethod
-    def get_ungle(cls, port_index):
+    def get_ungle(cls, port_index: int) -> dict:
         '''Получение реального значения угла в градусах'''
         hex_data = cls.get_hex_data(port_index)
         # Переводим х и у в int16
@@ -71,7 +71,7 @@ class Reciever():
             y = y + np.array(0xF000).astype(np.int16)
         # Вычисляем угол в радианах
         angle = np.arctan2(x, y)
-        return np.rad2deg(angle)
+        return {'angle': np.rad2deg(angle), 'x': x, 'y': y}
 
 # Отладочная тестировка в консоль
 # reciever = Reciever()

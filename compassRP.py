@@ -1,3 +1,4 @@
+from math import sqrt
 import sys
 import datetime
 import pyqtgraph as pg
@@ -9,7 +10,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QTextEdit,
     QSplitter, QLineEdit,
     QFormLayout, QMessageBox,
-    QHBoxLayout, QComboBox, 
+    QHBoxLayout, QComboBox,
     QLabel)
 from receiver import Reciever, LowPassFilter
 from compass import Compass
@@ -19,6 +20,7 @@ import os
 
 class MainWindow(QMainWindow):
     '''Класс главного окна'''
+
     def __init__(self):
         super().__init__()
         self.reciever: Reciever = Reciever()
@@ -28,7 +30,7 @@ class MainWindow(QMainWindow):
         self.maxDataSize = 50
         self.dataForFile = []
         self.portList = self.reciever.get_ports()
-        self.setWindowTitle('КомпасРП вер. 1.0')
+        self.setWindowTitle('КомпасРП вер. 1.1')
         self.initInterface()
 
     def initInterface(self):
@@ -67,6 +69,7 @@ class MainWindow(QMainWindow):
                                      pen=pg.mkPen('red', width=2))
         self.plotWidget.addItem(self.curve)
         self.plotWidget.setRange(yRange=list(range(-180, 180, 10)))
+        self.plotWidget.setMouseEnabled(False)
 
         # Создаем таймер для обновления графика и текущего времени
         self.timer = QTimer()
@@ -79,10 +82,11 @@ class MainWindow(QMainWindow):
         # Создаем кнопку для старта построения графика
         self.startButton = QPushButton('Start')
         self.startButton.clicked.connect(self.startPlotting)
-
+        self.startButton.setFont(QFont('Arial', 14, QFont.Bold))
         # Создаем кнопку для остановки построения графика
         self.stopButton = QPushButton('Stop')
         self.stopButton.clicked.connect(self.stopPlotting)
+        self.stopButton.setFont(QFont('Arial', 14, QFont.Bold))
         self.stopButton.hide()
 
         # Создаем кнопку показа графического компаса
@@ -96,7 +100,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.showCompassButton, 1)
         layout.addWidget(self.startButton, 5)
         layout.addWidget(self.stopButton, 5)
-        layout.addWidget(self.openFolderFilesButton)
+        layout.addWidget(self.openFolderFilesButton, 1)
 
         widget.setLayout(layout)
         return widget
@@ -109,12 +113,27 @@ class MainWindow(QMainWindow):
         self.logTextEdit = QTextEdit()
         self.logTextEdit.setReadOnly(True)
         # Создаем виджет показа текущего угла
-        self.currentLabel = QLabel('0')
-        self.currentLabel.setAlignment(Qt.AlignCenter)
-        self.currentLabel.setStyleSheet("color: red;") # устанавливаем красный цвет шрифта
-        self.currentLabel.setFont(QFont("Arial", 30)) # устанавливаем шрифт размером 20
+        self.currentFilteredAngleLabel = QLabel('0')
+        self.currentFilteredAngleLabel.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
+        self.currentFilteredAngleLabel.setStyleSheet("color: red;")
+        self.currentFilteredAngleLabel.setFont(QFont("Arial", 30))
+
+        self.currentRealAngleLabel = QLabel('0')
+        self.currentRealAngleLabel.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.currentRealAngleLabel.setStyleSheet("color: black;")
+        self.currentRealAngleLabel.setFont(QFont("Arial", 15))
+
+        self.currentMagneticDeviationLabel = QLabel('0')
+        self.currentMagneticDeviationLabel.setAlignment(Qt.AlignCenter)
+        self.currentMagneticDeviationLabel.setStyleSheet(
+            "color: blue;")
+        self.currentMagneticDeviationLabel.setFont(
+            QFont("Arial", 30))
+
         layout.addWidget(self.logTextEdit, 5)
-        layout.addWidget(self.currentLabel, 5)
+        layout.addWidget(self.currentFilteredAngleLabel, 3)
+        layout.addWidget(self.currentRealAngleLabel, 1)
+        layout.addWidget(self.currentMagneticDeviationLabel, 3)
         widget.setLayout(layout)
         return widget
 
@@ -125,19 +144,19 @@ class MainWindow(QMainWindow):
 
         leftLayout = QFormLayout()
         self.frequencyReceiverLine = QLineEdit('100')
-        self.frequencySaveLine = QLineEdit('10')
+        self.frequencySaveFileLine = QLineEdit('10')
         leftLayout.addRow(
             'Частота опроса компаса(мс): ', self.frequencyReceiverLine)
         leftLayout.addRow(
-            'Частота записи в файл: ', self.frequencySaveLine)
+            'Частота записи в файл: ', self.frequencySaveFileLine)
 
         rightLayout = QFormLayout()
-        self.lengthWindowFilterLine = QLineEdit('50')
-        self.alphaWindowFilterLine = QLineEdit('0.1')
+        self.lengthFilterWindowLine = QLineEdit('50')
+        self.filterAlphaLine = QLineEdit('0.1')
         rightLayout.addRow(
-            'Длина окна фильтра: ', self.lengthWindowFilterLine)
+            'Длина окна фильтра: ', self.lengthFilterWindowLine)
         rightLayout.addRow(
-            'Множитель фильтра: ', self.alphaWindowFilterLine)
+            'Множитель фильтра: ', self.filterAlphaLine)
 
         settingsLayout.addLayout(leftLayout)
         settingsLayout.addLayout(rightLayout)
@@ -146,24 +165,29 @@ class MainWindow(QMainWindow):
 
     def startPlotting(self):
         '''Метод старта отслеживания результатов'''
+
+        if self.portMenu.currentIndex() == -1:
+            self.stopPlotting()
+            self.alert(QMessageBox.Warning, 'Устройство не выбрано или не найдено')
+            return
         # Генерация имени файла, в который будет сохранены результаты
         self.fileName = (
             'data-' + str(datetime.datetime.now().strftime("%H-%M-%S")))
+        self.dataForFile = []
         # Создание экземпляра класса фильтрации
         self.lowPassFilter = LowPassFilter(
-            int(self.lengthWindowFilterLine.text()), float(self.alphaWindowFilterLine.text()))
+            int(self.lengthFilterWindowLine.text()), float(self.filterAlphaLine.text()))
         self.startButton.hide()
         self.stopButton.show()
         # Старт отслеживания
         self.timer.start(int(self.frequencyReceiverLine.text()))
-
 
     def stopPlotting(self):
         '''Остановка отслеживания'''
         self.timer.stop()  # Обновление каждую секунду
         self.startButton.show()
         self.stopButton.hide()
-        self.dataForFile = []
+
 
     def showCompass(self):
         self.compass.show()
@@ -173,17 +197,26 @@ class MainWindow(QMainWindow):
         while len(self.dataX) > self.maxDataSize:
             self.dataX.pop(0)
             self.dataY.pop(0)
-        # Добавляем новые данные
+        # Получаем новые данные
+        try:
+            data = self.reciever.get_ungle(self.portMenu.currentIndex())
+        except Exception:
+            self.stopPlotting()
+            self.alert(QMessageBox.Warning, 'Ошибка получения данных от компаса')
+            return
+        y = data['angle']
+        horizontalComponent = sqrt(data["x"]**2 + data["y"])
         self.dataX.append(next(self.dataForX))
         self.dataY.append(y)
-        y = self.reciever.get_ungle(self.portMenu.currentIndex())
         # Считаем среднее
         filteredY = self.lowPassFilter.filter(y)
         # Обновляем график
         self.curve.setData(self.dataX, self.dataY)
         # Обновляем графический компас, текущие показания, логи
         self.compass.updateDirection(filteredY)
-        self.currentLabel.setText(f'{filteredY:.3f}')
+        self.currentFilteredAngleLabel.setText(f'{filteredY:.3f}')
+        self.currentRealAngleLabel.setText(f'{y:.3f}')
+        self.currentMagneticDeviationLabel.setText(f'{horizontalComponent:.3f}')
         self.updateTextLogs(y)
 
     def openFolderFiles(self):
@@ -210,19 +243,21 @@ class MainWindow(QMainWindow):
 
     def updateFileLogs(self, y):
         self.dataForFile.append(y)
-        if len(self.dataForFile) >= int(self.frequencySaveLine.text()):
-            try:
-                if not os.path.exists('data'):
-                    os.mkdir('data')
-                with open(f'data/{self.fileName}.csv', 'a') as file:
-                    if all(i > 0 for i in self.dataForFile) or all(i > 0 for i in self.dataForFile):
-                        mean = sum(self.dataForFile) / len(self.dataForFile)
-                    else: mean = self.dataForFile[-1]
-                    file.write(f'{self.timestamp},{mean}\n')
-                    self.dataForFile = []
-            except Exception as e:
-                self.stopPlotting()
-                self.alert(QMessageBox.Warning, str(e))
+        if len(self.dataForFile) < int(self.frequencySaveFileLine.text()):
+            return
+        try:
+            if not os.path.exists('data'):
+                os.mkdir('data')
+            with open(f'data/{self.fileName}.csv', 'a') as file:
+                if all(i > 0 for i in self.dataForFile) or all(i > 0 for i in self.dataForFile):
+                    mean = sum(self.dataForFile) / len(self.dataForFile)
+                else:
+                    mean = self.dataForFile[-1]
+                file.write(f'{self.timestamp},{mean},{self.dataForFile[-1]}\n')
+                self.dataForFile = []
+        except Exception as e:
+            self.stopPlotting()
+            self.alert(QMessageBox.Warning, str(e))
 
     @staticmethod
     def alert(type, message):
