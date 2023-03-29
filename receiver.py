@@ -1,10 +1,15 @@
 from serial import Serial, EIGHTBITS
 from serial.tools import list_ports
+from typing import NamedTuple
 import numpy as np
 from collections import deque
+from random import randint
+from collections import namedtuple as nt
+
 
 class LowPassFilter:
     '''Класс фильтрации данных'''
+    #TODO сделать нормальную фильтрацую, это муть какая-то)
     def __init__(self, window_size: int, alpha: float) -> None:
         self.alpha = alpha
         self.window = deque(maxlen=window_size)
@@ -14,14 +19,19 @@ class LowPassFilter:
         self.window.append(x)
         if all(i > 0 for i in self.window) or all(i > 0 for i in self.window):
             if len(self.window) == self.window.maxlen:
-                    self.prev_avg = self.alpha * x + (1 - self.alpha) * self.prev_avg
+                self.prev_avg = self.alpha * x + \
+                    (1 - self.alpha) * self.prev_avg
             else:
                 self.prev_avg = sum(self.window) / len(self.window)
-        else: self.prev_avg = x
+        else:
+            self.prev_avg = x
         return self.prev_avg
+
 
 class Reciever():
     '''Класс получения данных с com-порта'''
+    Data: NamedTuple = nt('Data', ['angle', 'x', 'y'])
+
     @staticmethod
     def get_ports() -> list:
         '''Получение ком-портов компьютера'''
@@ -44,21 +54,24 @@ class Reciever():
     @classmethod
     def get_hex_data(cls, port_index: int) -> list:
         '''Получение байт-данных с ком-порта'''
-        with Serial(bytesize=EIGHTBITS, timeout=0.1, baudrate=115200) as ser:
-            ser.port = list(map(lambda x: x.device, cls.get_ports()))[port_index]
+        with Serial(
+                bytesize=EIGHTBITS,
+                timeout=0.1, 
+                baudrate=115200
+            ) as ser:
+            ser.port = [i.device for i in cls.get_ports()][port_index]
             ser.open()
-            while True:
-                byte_data = ser.read(4)
+            byte_data = ser.read(4)
+            hex_data = cls.get_numbers_from_bytes(byte_data)
+            is_start = cls.is_start(hex_data[0], hex_data[4])
+            while not is_start:
+                byte_data = byte_data[1:] + ser.read(1)
                 hex_data = cls.get_numbers_from_bytes(byte_data)
                 is_start = cls.is_start(hex_data[0], hex_data[4])
-                while not is_start:
-                    byte_data = byte_data[1:] + ser.read(1)
-                    hex_data = cls.get_numbers_from_bytes(byte_data)
-                    is_start = cls.is_start(hex_data[0], hex_data[4])
-                return hex_data
+            return hex_data
 
     @classmethod
-    def get_ungle(cls, port_index: int) -> dict:
+    def get_angle(cls, port_index: int) -> dict:
         '''Получение реального значения угла в градусах'''
         hex_data = cls.get_hex_data(port_index)
         # Переводим х и у в int16
@@ -70,8 +83,12 @@ class Reciever():
         if y & 0x800:
             y = y + np.array(0xF000).astype(np.int16)
         # Вычисляем угол в радианах
-        angle = np.arctan2(x, y)
-        return {'angle': np.rad2deg(angle), 'x': x, 'y': y}
+        angle_rad = np.arctan2(x, y)
+        return cls.Data(np.rad2deg(angle_rad), x, y)
+
+    @classmethod
+    def get_fake_angle(cls):
+        return cls.Data(randint(-180, 180), 1, 1)
 
 # Отладочная тестировка в консоль
 # reciever = Reciever()

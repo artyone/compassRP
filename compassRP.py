@@ -1,7 +1,10 @@
-from math import sqrt
+import os
 import sys
-import datetime
+from itertools import count
+from datetime import datetime
+from collections import namedtuple as nt
 import pyqtgraph as pg
+from typing import NamedTuple, Iterable
 from PyQt5.QtGui import QTextCursor, QFont
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtWidgets import (
@@ -14,87 +17,97 @@ from PyQt5.QtWidgets import (
     QLabel)
 from receiver import Reciever, LowPassFilter
 from compass import Compass
-from itertools import count
-import os
 
 
 class MainWindow(QMainWindow):
     '''Класс главного окна'''
+    DataFile = nt('DataFile', ['angle', 'x', 'y'])
 
     def __init__(self):
         super().__init__()
         self.reciever: Reciever = Reciever()
-        self.dataX: list[float] = list(range(10))
-        self.dataY: list[float] = [0] * 10
-        self.dataForX = count(10)
-        self.maxDataSize = 50
-        self.dataForFile = {'angle': [], 'x': [], 'y': []}
-        self.portList = self.reciever.get_ports()
-        self.setWindowTitle('КомпасРП вер. 1.1')
+        self.dataForGraphX: list[float] = list(range(10))
+        self.dataForGraphY: list[float] = [0] * 10
+        self.dataForX: Iterable = count(10)
+        self.maxDataSize: int = 50
+        self.dataForFile: NamedTuple = self.DataFile([], [], [])
+        self.portList: list = self.reciever.get_ports()
+        self.setWindowTitle('КомпасРП вер. 1.2')
         self.initInterface()
 
     def initInterface(self):
-        self.portMenu = QComboBox()
-        self.portMenu.addItems([i.description for i in self.portList])
-
-        self.initGraph()
-
         splitter = QSplitter(Qt.Vertical)
-        splitter.addWidget(self.plotWidget)
-        splitter.addWidget(self.logAndCurrentLabel())
-
+        splitter.addWidget(self.graphBlock())
+        splitter.addWidget(self.digitsBlock())
         self.compass = Compass()
         self.compass.hide()
-
-        # Создаем главный макет окна и добавляем в него виджеты
         mainLayout = QVBoxLayout()
-        mainLayout.addWidget(self.portMenu)
+        mainLayout.addWidget(self.portMenuBlock())
         mainLayout.addWidget(splitter)
         mainLayout.addWidget(self.buttonBlock())
-        mainLayout.addWidget(self.settingsWidget())
-
-        # Создаем виджет, в который добавляем главный макет и устанавливаем его в качестве центрального виджета окна
+        mainLayout.addWidget(self.settingsBlock())
         mainWidget = QWidget()
         mainWidget.setLayout(mainLayout)
         self.setCentralWidget(mainWidget)
         self.showMaximized()
 
-    def initGraph(self):
-        # Создаем виджет графика
-        self.plotWidget = pg.PlotWidget()
-        self.plotWidget.setBackground('black')
-        # Создаем кривую для виджета графика
-        self.curve = pg.PlotDataItem(self.dataX,
-                                     self.dataY,
-                                     pen=pg.mkPen('red', width=2))
-        self.plotWidget.addItem(self.curve)
-        self.plotWidget.setRange(yRange=list(range(-180, 180, 10)))
-        self.plotWidget.setMouseEnabled(False)
-        self.plotWidget.showGrid(x=True, y=True)
-
-        # Создаем таймер для обновления графика и текущего времени
+        # Создаем таймер для обновления данных в интерфейсе
         self.timer = QTimer()
-        self.timer.timeout.connect(self.updatePlotAndLogs)
+        self.timer.timeout.connect(self.updateInterface)
+
+    def portMenuBlock(self):
+        '''Блок выбора usb к которому подключен com'''
+        widget = QWidget()
+        layout = QHBoxLayout()
+        self.portMenu = QComboBox()
+        self.updatePortMenu()
+        updateButton = QPushButton('Refresh')
+        updateButton.clicked.connect(self.updatePortMenu)
+        layout.addWidget(self.portMenu, 25)
+        layout.addWidget(updateButton, 1)
+        widget.setLayout(layout)
+        return widget
+
+    def updatePortMenu(self):
+        self.portMenu.clear()
+        self.portMenu.addItems(
+            [i.description for i in self.portList]
+        )
+
+    def graphBlock(self):
+        '''Блок графика'''
+        # Создаем виджет графика
+        plotWidget = pg.PlotWidget()
+        plotWidget.setBackground('black')
+        # Создаем кривую для виджета графика
+        self.curve = pg.PlotDataItem(
+            self.dataForGraphX,
+            self.dataForGraphY,
+            pen=pg.mkPen('red', width=2)
+        )
+        plotWidget.addItem(self.curve)
+        plotWidget.setRange(
+            yRange=list(range(-180, 180, 10))
+        )
+        plotWidget.setMouseEnabled(False)
+        plotWidget.showGrid(x=True, y=True)
+        return plotWidget
 
     def buttonBlock(self):
+        '''Блок кнопок'''
         widget = QWidget()
         layout = QHBoxLayout()
 
-        # Создаем кнопку для старта построения графика
         self.startButton = QPushButton('Start')
-        self.startButton.clicked.connect(self.startPlotting)
+        self.startButton.clicked.connect(self.startProcess)
         self.startButton.setFont(QFont('Arial', 14, QFont.Bold))
-        # Создаем кнопку для остановки построения графика
         self.stopButton = QPushButton('Stop')
-        self.stopButton.clicked.connect(self.stopPlotting)
+        self.stopButton.clicked.connect(self.stopProcess)
         self.stopButton.setFont(QFont('Arial', 14, QFont.Bold))
         self.stopButton.hide()
-
         # Создаем кнопку показа графического компаса
         self.showCompassButton = QPushButton('Show compass')
         self.showCompassButton.clicked.connect(self.showCompass)
-
-        # Создаем кнопку для открытия папки с логами
         self.openFolderFilesButton = QPushButton('Open files folder')
         self.openFolderFilesButton.clicked.connect(self.openFolderFiles)
 
@@ -106,40 +119,32 @@ class MainWindow(QMainWindow):
         widget.setLayout(layout)
         return widget
 
-    def logAndCurrentLabel(self):
+    def digitsBlock(self):
         '''Виджет лога и текущих показаний'''
         widget = QWidget()
         layout = QHBoxLayout()
-        # Создаем виджет лога
         self.logTextEdit = QTextEdit()
         self.logTextEdit.setReadOnly(True)
-        # Создаем виджет показа текущего угла
         self.currentFilteredAngleLabel = QLabel('0')
-        self.currentFilteredAngleLabel.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
+        self.currentFilteredAngleLabel.setAlignment(
+            Qt.AlignVCenter | Qt.AlignRight
+        )
         self.currentFilteredAngleLabel.setStyleSheet("color: red;")
         self.currentFilteredAngleLabel.setFont(QFont("Arial", 45))
-
         self.currentRealAngleLabel = QLabel('0')
-        self.currentRealAngleLabel.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.currentRealAngleLabel.setAlignment(
+            Qt.AlignVCenter | Qt.AlignLeft
+        )
         self.currentRealAngleLabel.setStyleSheet("color: black;")
         self.currentRealAngleLabel.setFont(QFont("Arial", 15))
-
-        # self.currentMagneticDeviationLabel = QLabel('0')
-        # self.currentMagneticDeviationLabel.setAlignment(Qt.AlignCenter)
-        # self.currentMagneticDeviationLabel.setStyleSheet(
-        #     "color: blue;")
-        self.currentMagneticDeviationLabel.setFont(
-            QFont("Arial", 45))
-
         layout.addWidget(self.logTextEdit, 5)
         layout.addWidget(self.currentFilteredAngleLabel, 3)
         layout.addWidget(self.currentRealAngleLabel, 1)
-        layout.addWidget(self.currentMagneticDeviationLabel, 3)
         widget.setLayout(layout)
         return widget
 
-    def settingsWidget(self):
-        '''Виджеты настроек'''
+    def settingsBlock(self):
+        '''Блок настроек'''
         settingsWidget = QWidget()
         settingsLayout = QHBoxLayout()
 
@@ -147,81 +152,102 @@ class MainWindow(QMainWindow):
         self.frequencyReceiverLine = QLineEdit('100')
         self.frequencySaveFileLine = QLineEdit('10')
         leftLayout.addRow(
-            'Частота опроса компаса(мс): ', self.frequencyReceiverLine)
+            'Частота опроса компаса(мс): ', self.frequencyReceiverLine
+        )
         leftLayout.addRow(
-            'Частота записи в файл: ', self.frequencySaveFileLine)
-
+            'Частота записи в файл: ', self.frequencySaveFileLine
+        )
         rightLayout = QFormLayout()
         self.lengthFilterWindowLine = QLineEdit('50')
         self.filterAlphaLine = QLineEdit('0.1')
         rightLayout.addRow(
-            'Длина окна фильтра: ', self.lengthFilterWindowLine)
+            'Длина окна фильтра: ', self.lengthFilterWindowLine
+        )
         rightLayout.addRow(
-            'Множитель фильтра: ', self.filterAlphaLine)
-
+            'Множитель фильтра: ', self.filterAlphaLine
+        )
         settingsLayout.addLayout(leftLayout)
         settingsLayout.addLayout(rightLayout)
         settingsWidget.setLayout(settingsLayout)
         return settingsWidget
 
-    def startPlotting(self):
+    def startProcess(self):
         '''Метод старта отслеживания результатов'''
-
         if self.portMenu.currentIndex() == -1:
-            self.stopPlotting()
-            self.alert(QMessageBox.Warning, 'Устройство не выбрано или не найдено')
+            self.stopProcess()
+            self.alert(
+                QMessageBox.Warning,
+                'Устройство не выбрано или не найдено'
+            )
             return
         # Генерация имени файла, в который будет сохранены результаты
         self.fileName = (
-            'data-' + str(datetime.datetime.now().strftime("%H-%M-%S")))
+            'data-' + datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        )
         self.clearDataForFile()
         # Создание экземпляра класса фильтрации
         self.lowPassFilter = LowPassFilter(
-            int(self.lengthFilterWindowLine.text()), float(self.filterAlphaLine.text()))
+            int(self.lengthFilterWindowLine.text()),
+            float(self.filterAlphaLine.text())
+        )
         self.startButton.hide()
         self.stopButton.show()
         # Старт отслеживания
-        self.timer.start(int(self.frequencyReceiverLine.text()))
+        self.timer.start(
+            int(self.frequencyReceiverLine.text()))
 
-    def stopPlotting(self):
+    def stopProcess(self):
         '''Остановка отслеживания'''
-        self.timer.stop()  # Обновление каждую секунду
+        self.timer.stop()
         self.startButton.show()
         self.stopButton.hide()
-
 
     def showCompass(self):
         self.compass.show()
 
-    def updatePlotAndLogs(self):
-        #TODO переделать метод, разделить создание на обновление данных, запись их в массивы и 
-        # и отдельное построение графика и логов
+    def updateInterface(self):
+        '''Метод обновления элементов интерфейса'''
+        data: NamedTuple = self.getCurrentData()
+        if not data:
+            return
+        # Обновляем график
+        self.updateGraph()
+        filteredAngle = self.lowPassFilter.filter(data.angle)
+        # Обновляем графический компас, текущие показания, логи
+        self.compass.updateDirection(filteredAngle)
+        self.currentFilteredAngleLabel.setText(
+            f'{filteredAngle:.3f}'
+        )
+        self.currentRealAngleLabel.setText(
+            f'{data.angle:.3f}'
+        )
+        # self.currentMagneticDeviationLabel.setText(f'{horizontalComponent:.3f}')
+        self.updateTextLogs(data.angle)
+        self.writeFileLogs(data.angle, data.x, data.y)
+
+    def getCurrentData(self):
+        '''Метод получения текущих данных'''
         # Если данных больше, чем отслеживаемый прериод, удаляем лишние данные
-        while len(self.dataX) > self.maxDataSize:
-            self.dataX.pop(0)
-            self.dataY.pop(0)
+        while len(self.dataForGraphX) > self.maxDataSize:
+            self.dataForGraphX.pop(0)
+            self.dataForGraphY.pop(0)
         # Получаем новые данные
         try:
-            data = self.reciever.get_ungle(self.portMenu.currentIndex())
-        except Exception:
-            self.stopPlotting()
-            self.alert(QMessageBox.Warning, 'Ошибка получения данных от компаса')
-            return
-        y = data['angle']
-        #horizontalComponent = sqrt(data["x"]**2 + data["y"])
-        self.dataX.append(next(self.dataForX))
-        self.dataY.append(y)
-        # Считаем среднее
-        filteredY = self.lowPassFilter.filter(y)
-        # Обновляем график
-        self.curve.setData(self.dataX, self.dataY)
-        # Обновляем графический компас, текущие показания, логи
-        self.compass.updateDirection(filteredY)
-        self.currentFilteredAngleLabel.setText(f'{filteredY:.3f}')
-        self.currentRealAngleLabel.setText(f'{y:.3f}')
-        #self.currentMagneticDeviationLabel.setText(f'{horizontalComponent:.3f}')
-        self.updateTextLogs(y)
-        self.updateFileLogs(y, data['x'], data['y'])
+            data = self.reciever.get_angle(
+                self.portMenu.currentIndex()
+            )
+            # data = self.reciever.get_fake_angle()
+        except Exception as e:
+            self.stopProcess()
+            self.alert(QMessageBox.Warning, str(e))
+            return False
+        # horizontalComponent = sqrt(data["x"]**2 + data["y"])
+        self.dataForGraphX.append(next(self.dataForX))
+        self.dataForGraphY.append(data.angle)
+        return data
+
+    def updateGraph(self):
+        self.curve.setData(self.dataForGraphX, self.dataForGraphY)
 
     def openFolderFiles(self):
         if not os.path.exists('data'):
@@ -229,15 +255,17 @@ class MainWindow(QMainWindow):
         os.startfile('data')
 
     def updateTextLogs(self, y):
-        self.timestamp = datetime.datetime.now().strftime("%H.%M.%S.%f")[:-3]
+        self.timestamp = datetime.now().strftime("%Y.%m.%d.%H.%M.%S.%f")[:-3]
         # Строка лога
         textLog = (
-            f'<i>{self.timestamp}</i> : <font color="red"><b>{y:.4f}</b></font><br>')
+            f'<i>{self.timestamp}</i> : <font color="red"><b>{y:.4f}</b></font><br>'
+        )
         # Перемещаем курсор в конец текста
         self.logTextEdit.moveCursor(QTextCursor.End)
         # Добавляем строку лога в конец текста
         self.logTextEdit.insertHtml(textLog)
-        if self.logTextEdit.toPlainText().count('\n') > 1000:  # Если количество строк превышает 1000
+        # Если количество строк превышает 1000
+        if self.logTextEdit.toPlainText().count('\n') > 1000:
             # Удаляем первую строку (самую старую)
             self.logTextEdit.moveCursor(QTextCursor.Start)
             self.logTextEdit.moveCursor(
@@ -245,30 +273,40 @@ class MainWindow(QMainWindow):
             self.logTextEdit.insertPlainText('')
         self.logTextEdit.moveCursor(QTextCursor.End)
 
-    def updateFileLogs(self, agnle, sourceX, sourceY):
-        self.dataForFile['angle'].append(agnle)
-        self.dataForFile['x'].append(sourceX)
-        self.dataForFile['y'].append(sourceY)
-        if len(self.dataForFile['angle']) < int(self.frequencySaveFileLine.text()):
+    def writeFileLogs(self, currentAngle, sourceX, sourceY) -> None:
+        '''Запись лога в файл'''
+        self.dataForFile.angle.append(currentAngle)
+        self.dataForFile.x.append(sourceX)
+        self.dataForFile.y.append(sourceY)
+        if len(self.dataForFile.angle) < int(self.frequencySaveFileLine.text()):
             return
         try:
             if not os.path.exists('data'):
                 os.mkdir('data')
             with open(f'data/{self.fileName}.csv', 'a') as file:
-                if all(i >= 0 for i in self.dataForFile['angle']) or all(i <= 0 for i in self.dataForFile['angle']):
-                    mean = sum(self.dataForFile['angle']) / len(self.dataForFile['angle'])
+                if self.isSameSignAngles:
+                    mean = (
+                        sum(self.dataForFile.angle) /
+                        len(self.dataForFile.angle)
+                    )
                 else:
-                    mean = self.dataForFile['angle'][-1]
-                realAngle = self.dataForFile['angle'][-1]
-                x, y = self.dataForFile['x'][-1], self.dataForFile['y'][-1]
+                    mean = self.dataForFile.angle[-1]
+                realAngle = self.dataForFile.angle[-1]
+                x, y = self.dataForFile.x[-1], self.dataForFile.y[-1]
                 file.write(f'{self.timestamp},{mean},{realAngle},{x},{y}\n')
                 self.clearDataForFile()
         except Exception as e:
-            self.stopPlotting()
+            self.stopProcess()
             self.alert(QMessageBox.Warning, str(e))
-    
+
     def clearDataForFile(self):
-        self.dataForFile = {'angle': [], 'x': [], 'y': []}
+        self.dataForFile = self.DataFile([], [], [])
+
+    @staticmethod
+    def isSameSignAngles(dataForFile: NamedTuple) -> bool:
+        allPlus = all(i >= 0 for i in dataForFile.angle)
+        allMinus = all(i <= 0 for i in dataForFile.angle)
+        return allPlus or allMinus
 
     @staticmethod
     def alert(type, message):
